@@ -12,7 +12,7 @@ firmware/
 ├── sensor_reader.h    # 센서 데이터 수집 및 전송
 └── README.md
 ```
-
+<br>
 
 ## 2. 필요 라이브러리
 Arduino IDE의 라이브러리 매니저에서 설치:
@@ -21,7 +21,7 @@ Arduino IDE의 라이브러리 매니저에서 설치:
 3. **ArduinoJson** (by Benoit Blanchon) - v6.x
 4. **DHT sensor library** (by Adafruit)
 5. **Adafruit Unified Sensor** (DHT 라이브러리 의존성)
-
+<br>
 
 ## 3. 하드웨어 연결
 ### ESP-01 (WiFi Module)
@@ -44,7 +44,7 @@ Arduino IDE의 라이브러리 매니저에서 설치:
 - VCC → Arduino 5V
 - AOUT → Arduino A1
 - GND → Arduino GND
-
+<br>
 
 ## 4. 업로드 방법
 ### Arduino IDE
@@ -54,7 +54,7 @@ Arduino IDE의 라이브러리 매니저에서 설치:
 4. `Tools` → `Board` → `Arduino UNO` 선택
 5. `Tools` → `Port` → 연결된 포트 선택
 6. Upload 버튼 클릭 (→)
-
+<br>
 
 ## 5. 설정 변경
 `config.h` 파일에서 다음 항목 수정 가능:
@@ -64,14 +64,14 @@ Arduino IDE의 라이브러리 매니저에서 설치:
 #define WIFI_PASSWORD "your-password"    // WiFi 비밀번호
 #define ZONE_ID 1                        // Zone 번호 (1, 2, 3)
 ```
-
+<br>
 
 ## 6. 동작 원리
 1. **부팅** → WiFi 연결 → MAC 주소 기반 Device ID 생성
 2. **DISCOVERING 모드** → 10초마다 Discovery 메시지 발송
 3. **Pi에서 Registration 수신** → REGISTERED 모드 전환
 4. **REGISTERED 모드** → 5초마다 센서 데이터 전송
-
+<br>
 
 ## 7. 트러블슈팅
 ### ESP-01이 인식 안 됨
