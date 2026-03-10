@@ -1,0 +1,94 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: data-validator-zone2
+  namespace: kubeedge
+  labels:
+    app: data-validator
+    zone: "2"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: data-validator
+      zone: "2"
+  template:
+    metadata:
+      labels:
+        app: data-validator
+        zone: "2"
+    spec:
+      tolerations:
+      - key: "dedicated"
+        operator: "Exists"
+        effect: "NoSchedule"
+      nodeSelector:
+        kubernetes.io/hostname: edge-002
+      hostNetwork: true
+      containers:
+      - name: data-validator
+        image: ysa5347/data-validator:v2.0
+        imagePullPolicy: Always
+        env:
+        - name: MQTT_BROKER
+          value: "192.168.0.102"
+        - name: MQTT_PORT
+          value: "1883"
+        - name: ZONE
+          value: "2"
+        - name: INFLUX_URL
+          value: "http://172.17.90.89:30086"
+        - name: INFLUX_ORG
+          value: "kubeedge"
+        - name: INFLUX_BUCKET
+          value: "sensor_data"
+        - name: INFLUX_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: influxdb-token
+              key: token
+        - name: ALERT_SERVER_URL
+          value: "http://192.168.0.102:8080/api/alerts"
+        - name: TEMP_MIN
+          value: "-10"
+        - name: TEMP_MAX
+          value: "40"
+        - name: HUM_MIN
+          value: "20"
+        - name: HUM_MAX
+          value: "100"
+        - name: LIGHT_MIN
+          value: "10"
+        - name: LIGHT_MAX
+          value: "100"
+        - name: SOIL_MIN
+          value: "30"
+        - name: SOIL_MAX
+          value: "80"
+        ports:
+        - containerPort: 8080
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+# ---
+# apiVersion: v1
+# kind: Service
+# metadata:
+#   name: data-validator-zone2
+#   namespace: kubeedge
+# spec:
+#   type: NodePort
+#   ports:
+#   - port: 8080
+#     targetPort: 8080
+#     nodePort: 30081
+#     protocol: TCP
+#   selector:
+#     app: data-validator
+#     zone: "2"
+# ---

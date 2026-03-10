@@ -1,0 +1,123 @@
+---
+# DeviceModel CRD - 센서 모델 정의
+apiVersion: devices.kubeedge.io/v1alpha2
+kind: DeviceModel
+metadata:
+  name: sensor-model
+  namespace: default
+spec:
+  properties:
+  - name: mac
+    description: "Device MAC address"
+    type:
+      string:
+        accessMode: ReadOnly
+        defaultValue: ""
+  - name: ip
+    description: "Device IP address"
+    type:
+      string:
+        accessMode: ReadOnly
+        defaultValue: ""
+  - name: model
+    description: "Device model name"
+    type:
+      string:
+        accessMode: ReadOnly
+        defaultValue: "Arduino Uno"
+  - name: firmware_version
+    description: "Firmware version"
+    type:
+      string:
+        accessMode: ReadOnly
+        defaultValue: "1.0.0"
+  - name: sensors
+    description: "List of sensors on the device"
+    type:
+      string:
+        accessMode: ReadOnly
+        defaultValue: ""
+  - name: temperature
+    description: "Temperature sensor reading in Celsius"
+    type:
+      float:
+        accessMode: ReadOnly
+        defaultValue: 0.0
+        maximum: 50.0
+        minimum: -10.0
+        unit: "Celsius"
+  - name: humidity
+    description: "Humidity sensor reading in percentage"
+    type:
+      float:
+        accessMode: ReadOnly
+        defaultValue: 0.0
+        maximum: 100.0
+        minimum: 0.0
+        unit: "%"
+  - name: soil_moisture
+    description: "Soil moisture sensor reading in percentage"
+    type:
+      float:
+        accessMode: ReadOnly
+        defaultValue: 0.0
+        maximum: 100.0
+        minimum: 0.0
+        unit: "%"
+  - name: light
+    description: "Light sensor reading (0-1023)"
+    type:
+      int:
+        accessMode: ReadOnly
+        defaultValue: 0
+        maximum: 1023
+        minimum: 0
+        unit: "lux"
+  - name: rssi
+    description: "WiFi signal strength"
+    type:
+      int:
+        accessMode: ReadOnly
+        defaultValue: 0
+        maximum: 0
+        minimum: -100
+        unit: "dBm"
+  - name: uptime
+    description: "Device uptime in seconds"
+    type:
+      int:
+        accessMode: ReadOnly
+        defaultValue: 0
+        unit: "seconds"
+
+---
+# Sample Device instances for testing
+# These will be created automatically by Device Registration Service
+# but we define them here for reference
+
+# apiVersion: devices.kubeedge.io/v1alpha2
+# kind: Device
+# metadata:
+#   name: sensor-001
+#   namespace: default
+#   labels:
+#     device-type: sensor
+#     model: arduino-uno
+# spec:
+#   deviceModelRef:
+#     name: sensor-model
+#   protocol:
+#     mqtt:
+#       broker: mqtt-lb.local
+#       port: 1883
+#   properties:
+#   - name: mac
+#     value: "AA:BB:CC:DD:EE:01"
+#   - name: ip
+#     value: "192.168.0.201"
+#   - name: model
+#     value: "Arduino Uno"
+#   - name: firmware_version
+#     value: "1.0.0"
+#   - name: sensors
+#     value: "temperature,humidity,soil_moisture,light"

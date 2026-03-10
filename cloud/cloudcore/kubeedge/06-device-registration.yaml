@@ -1,0 +1,343 @@
+---
+# ConfigMap for Device Registration Service
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: device-registration-config
+  namespace: kubeedge
+data:
+  config.yaml: |
+    mqtt:
+      broker: "mqtt-lb.local"  # Will be updated when Edge is configured
+      port: 1883
+      topics:
+        register: "device/register"
+      qos: 1
+      client_id: "device-registration-service"
+    
+    kubernetes:
+      namespace: "default"
+      device_model: "sensor-model"
+    
+    logging:
+      level: "INFO"
+      format: "json"
+
+  device_registration.py: |
+    #!/usr/bin/env python3
+    """
+    Device Registration Service
+    Consumes MQTT messages from device/register topic and creates Device CRDs in Kubernetes
+    """
+    
+    import json
+    import logging
+    import os
+    import sys
+    import time
+    from typing import Dict, Any
+    
+    import paho.mqtt.client as mqtt
+    from kubernetes import client, config
+    from kubernetes.client.rest import ApiException
+    
+    # Configure logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    logger = logging.getLogger(__name__)
+    
+    # MQTT Configuration
+    MQTT_BROKER = os.getenv('MQTT_BROKER', 'localhost')
+    MQTT_PORT = int(os.getenv('MQTT_PORT', '1883'))
+    MQTT_TOPIC_REGISTER = os.getenv('MQTT_TOPIC_REGISTER', 'device/register')
+    MQTT_QOS = int(os.getenv('MQTT_QOS', '1'))
+    MQTT_CLIENT_ID = os.getenv('MQTT_CLIENT_ID', 'device-registration-service')
+    
+    # Kubernetes Configuration
+    K8S_NAMESPACE = os.getenv('K8S_NAMESPACE', 'default')
+    DEVICE_MODEL_NAME = os.getenv('DEVICE_MODEL_NAME', 'sensor-model')
+    
+    class DeviceRegistrationService:
+        def __init__(self):
+            # Initialize Kubernetes client
+            try:
+                config.load_incluster_config()
+            except:
+                logger.warning("Failed to load in-cluster config, trying kubeconfig")
+                config.load_kube_config()
+            
+            self.k8s_api = client.CustomObjectsApi()
+            self.mqtt_client = None
+            
+        def on_connect(self, client, userdata, flags, rc):
+            """MQTT connection callback"""
+            if rc == 0:
+                logger.info(f"Connected to MQTT broker at {MQTT_BROKER}:{MQTT_PORT}")
+                client.subscribe(MQTT_TOPIC_REGISTER, qos=MQTT_QOS)
+                logger.info(f"Subscribed to topic: {MQTT_TOPIC_REGISTER}")
+            else:
+                logger.error(f"Failed to connect to MQTT broker, return code: {rc}")
+        
+        def on_disconnect(self, client, userdata, rc):
+            """MQTT disconnection callback"""
+            logger.warning(f"Disconnected from MQTT broker, return code: {rc}")
+            if rc != 0:
+                logger.info("Attempting to reconnect...")
+        
+        def on_message(self, client, userdata, msg):
+            """MQTT message callback"""
+            try:
+                logger.info(f"Received message on topic: {msg.topic}")
+                payload = json.loads(msg.payload.decode())
+                logger.info(f"Payload: {json.dumps(payload, indent=2)}")
+                
+                # Validate payload
+                required_fields = ['device_id', 'mac', 'ip', 'model']
+                if not all(field in payload for field in required_fields):
+                    logger.error(f"Missing required fields. Required: {required_fields}")
+                    return
+                
+                # Register device in Kubernetes
+                self.register_device(payload)
+                
+                # Send confirmation message (optional)
+                self.send_registration_confirmation(payload['device_id'])
+                
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to decode JSON payload: {e}")
+            except Exception as e:
+                logger.error(f"Error processing message: {e}", exc_info=True)
+        
+        def register_device(self, device_info: Dict[str, Any]):
+            """Register device by creating Device CRD in Kubernetes"""
+            device_id = device_info['device_id']
+            
+            # Create Device CRD
+            device_crd = {
+                "apiVersion": "devices.kubeedge.io/v1alpha2",
+                "kind": "Device",
+                "metadata": {
+                    "name": device_id,
+                    "namespace": K8S_NAMESPACE,
+                    "labels": {
+                        "device-type": "sensor",
+                        "model": device_info.get('model', 'unknown'),
+                        "auto-registered": "true"
+                    }
+                },
+                "spec": {
+                    "deviceModelRef": {
+                        "name": DEVICE_MODEL_NAME
+                    },
+                    "protocol": {
+                        "mqtt": {
+                            "broker": MQTT_BROKER,
+                            "port": MQTT_PORT
+                        }
+                    },
+                    "properties": []
+                }
+            }
+            
+            # Add properties from device_info
+            properties = []
+            for key, value in device_info.items():
+                if key != 'device_id':
+                    properties.append({
+                        "name": key,
+                        "value": str(value)
+                    })
+            
+            device_crd["spec"]["properties"] = properties
+            
+            try:
+                # Try to create the device
+                self.k8s_api.create_namespaced_custom_object(
+                    group="devices.kubeedge.io",
+                    version="v1alpha2",
+                    namespace=K8S_NAMESPACE,
+                    plural="devices",
+                    body=device_crd
+                )
+                logger.info(f"Device {device_id} registered successfully")
+                
+            except ApiException as e:
+                if e.status == 409:
+                    logger.info(f"Device {device_id} already exists, updating...")
+                    try:
+                        # Update existing device
+                        self.k8s_api.patch_namespaced_custom_object(
+                            group="devices.kubeedge.io",
+                            version="v1alpha2",
+                            namespace=K8S_NAMESPACE,
+                            plural="devices",
+                            name=device_id,
+                            body=device_crd
+                        )
+                        logger.info(f"Device {device_id} updated successfully")
+                    except ApiException as update_error:
+                        logger.error(f"Failed to update device {device_id}: {update_error}")
+                else:
+                    logger.error(f"Failed to register device {device_id}: {e}")
+        
+        def send_registration_confirmation(self, device_id: str):
+            """Send registration confirmation message to device (optional)"""
+            try:
+                topic = f"sensors/{device_id}/config"
+                payload = json.dumps({
+                    "status": "registered",
+                    "sampling_rate": 1,
+                    "timestamp": time.time()
+                })
+                
+                self.mqtt_client.publish(topic, payload, qos=1)
+                logger.info(f"Sent registration confirmation to {device_id}")
+                
+            except Exception as e:
+                logger.error(f"Failed to send confirmation to {device_id}: {e}")
+        
+        def start(self):
+            """Start the Device Registration Service"""
+            logger.info("Starting Device Registration Service...")
+            
+            # Setup MQTT client
+            self.mqtt_client = mqtt.Client(client_id=MQTT_CLIENT_ID)
+            self.mqtt_client.on_connect = self.on_connect
+            self.mqtt_client.on_disconnect = self.on_disconnect
+            self.mqtt_client.on_message = self.on_message
+            
+            # Connect to MQTT broker
+            logger.info(f"Connecting to MQTT broker at {MQTT_BROKER}:{MQTT_PORT}")
+            self.mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
+            
+            # Start MQTT loop
+            self.mqtt_client.loop_forever()
+    
+    if __name__ == "__main__":
+        try:
+            service = DeviceRegistrationService()
+            service.start()
+        except KeyboardInterrupt:
+            logger.info("Service stopped by user")
+            sys.exit(0)
+        except Exception as e:
+            logger.error(f"Service failed: {e}", exc_info=True)
+            sys.exit(1)
+
+---
+# ServiceAccount for Device Registration Service
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: device-registration
+  namespace: kubeedge
+
+---
+# ClusterRole for Device Registration Service
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: device-registration
+rules:
+- apiGroups: ["devices.kubeedge.io"]
+  resources: ["devices", "devicemodels"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+---
+# ClusterRoleBinding for Device Registration Service
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: device-registration
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: device-registration
+subjects:
+- kind: ServiceAccount
+  name: device-registration
+  namespace: kubeedge
+
+---
+# Deployment for Device Registration Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: device-registration
+  namespace: kubeedge
+  labels:
+    app: device-registration
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: device-registration
+  template:
+    metadata:
+      labels:
+        app: device-registration
+    spec:
+      serviceAccountName: device-registration
+      containers:
+      - name: device-registration
+        image: python:3.11-slim
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          pip install --no-cache-dir paho-mqtt kubernetes && \
+          python /app/device_registration.py
+        env:
+        - name: MQTT_BROKER
+          value: "mqtt-lb.local"  # Will be updated when Edge is configured
+        - name: MQTT_PORT
+          value: "1883"
+        - name: MQTT_TOPIC_REGISTER
+          value: "device/register"
+        - name: MQTT_QOS
+          value: "1"
+        - name: MQTT_CLIENT_ID
+          value: "device-registration-service"
+        - name: K8S_NAMESPACE
+          value: "default"
+        - name: DEVICE_MODEL_NAME
+          value: "sensor-model"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+        volumeMounts:
+        - name: app-code
+          mountPath: /app
+      volumes:
+      - name: app-code
+        configMap:
+          name: device-registration-config
+          items:
+          - key: device_registration.py
+            path: device_registration.py
+            mode: 0755
+
+---
+# Service for Device Registration (for monitoring)
+apiVersion: v1
+kind: Service
+metadata:
+  name: device-registration
+  namespace: kubeedge
+  labels:
+    app: device-registration
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8080
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  selector:
+    app: device-registration

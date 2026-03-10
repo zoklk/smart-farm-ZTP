@@ -1,0 +1,19 @@
+---
+# Namespace for KubeEdge Cloud components
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kubeedge
+  labels:
+    name: kubeedge
+    app.kubernetes.io/part-of: kubeedge-iot
+
+---
+# Namespace for monitoring stack
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    name: monitoring
+    app.kubernetes.io/part-of: kubeedge-iot

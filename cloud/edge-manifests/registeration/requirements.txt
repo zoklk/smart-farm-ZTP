@@ -1,0 +1,8 @@
+# MQTT Client
+paho-mqtt==1.6.1
+
+# Kubernetes Python Client
+kubernetes==28.1.0
+
+# 추가 유틸리티
+python-dateutil==2.8.2

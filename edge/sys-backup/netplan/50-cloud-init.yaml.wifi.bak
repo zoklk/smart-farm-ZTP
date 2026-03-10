@@ -1,0 +1,13 @@
+network:
+  version: 2
+  wifis:
+    wlan0:  
+      dhcp4: true
+      dhcp6: false
+      access-points:
+        "NetAi":
+          password: "netAi007!"      
+      nameservers:
+        addresses:
+          - 8.8.8.8
+          - 8.8.4.4

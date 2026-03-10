@@ -1,0 +1,139 @@
+
+---
+# ServiceAccount
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: device-registration-sa
+  namespace: kubeedge
+
+---
+# ClusterRole - Device CRD 관리 권한
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: device-manager
+rules:
+- apiGroups: ["devices.kubeedge.io"]
+  resources: ["devices", "devicemodels"]
+  verbs: ["create", "get", "list", "watch", "patch", "update"]
+- apiGroups: [""]
+  resources: ["namespaces"]
+  verbs: ["get", "list"]
+
+---
+# ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: device-registration-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: device-manager
+subjects:
+- kind: ServiceAccount
+  name: device-registration-sa
+  namespace: kubeedge
+
+---
+# ConfigMap - 설정값
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: device-registration-config
+  namespace: kubeedge
+data:
+  MQTT_BROKER: "localhost"
+  MQTT_PORT: "1883"
+  MQTT_KEEPALIVE: "60"
+  DEVICE_NAMESPACE: "default"
+  DEVICE_MODEL_NAME: "sensor-model"
+
+---
+# Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: device-registration
+  namespace: kubeedge
+  labels:
+    app: device-registration
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: device-registration
+  template:
+    metadata:
+      labels:
+        app: device-registration
+    spec:
+      # Edge 노드에서만 실행
+      nodeSelector:
+        kubernetes.io/hostname: edge-server1
+      serviceAccountName: device-registration-sa
+      
+      # Host 네트워크 사용 (MQTT Broker가 localhost에 있음)
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      
+      containers:
+      - name: device-registration
+        image: ysa5347/device-registration:latest
+        imagePullPolicy: Always
+        
+        envFrom:
+        - configMapRef:
+            name: device-registration-config
+        
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+        
+        # 보안 설정
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: false
+        
+        # Liveness probe
+        livenessProbe:
+          exec:
+            command:
+            - python
+            - -c
+            - "import sys; sys.exit(0)"
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        # Readiness probe
+        readinessProbe:
+          exec:
+            command:
+            - python
+            - -c
+            - "import sys; sys.exit(0)"
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+      
+      # Restart policy
+      restartPolicy: Always
+      
+      # Tolerations (Edge 노드 toleration)
+      tolerations:
+      - key: "dedicated"
+        operator: "Exists"
+        effect: "NoSchedule"

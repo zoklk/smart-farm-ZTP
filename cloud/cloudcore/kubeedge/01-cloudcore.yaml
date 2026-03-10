@@ -1,0 +1,244 @@
+---
+# PersistentVolume for CloudCore
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: cloudcore-pv
+  labels:
+    app: cloudcore
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: manual
+  hostPath:
+    path: /data/kubeedge/cloudcore
+    type: DirectoryOrCreate
+
+---
+# PersistentVolumeClaim for CloudCore
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: cloudcore-pvc
+  namespace: kubeedge
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: manual
+  resources:
+    requests:
+      storage: 5Gi
+  volumeName: cloudcore-pv
+
+---
+# ServiceAccount for CloudCore
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cloudcore
+  namespace: kubeedge
+
+---
+# ClusterRole for CloudCore
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cloudcore
+rules:
+- apiGroups: [""]
+  resources: ["nodes", "nodes/status", "serviceaccounts/token", "configmaps", "pods", "pods/status", "secrets", "endpoints", "services", "persistentvolumeclaims", "persistentvolumes"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: [""]
+  resources: ["namespaces"]
+  verbs: ["get", "create", "list", "watch"]
+- apiGroups: ["coordination.k8s.io"]
+  resources: ["leases"]
+  verbs: ["get", "create", "update"]
+- apiGroups: ["devices.kubeedge.io"]
+  resources: ["*"]
+  verbs: ["*"]
+- apiGroups: ["reliablesyncs.kubeedge.io"]
+  resources: ["*"]
+  verbs: ["*"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "deployments/status", "daemonsets", "daemonsets/status"]
+  verbs: ["get", "list", "watch"]
+
+---
+# ClusterRoleBinding for CloudCore
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cloudcore
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cloudcore
+subjects:
+- kind: ServiceAccount
+  name: cloudcore
+  namespace: kubeedge
+
+---
+# ConfigMap for CloudCore
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloudcore-config
+  namespace: kubeedge
+data:
+  cloudcore.yaml: |
+    apiVersion: cloudcore.config.kubeedge.io/v1alpha2
+    kind: CloudCore
+    kubeAPIConfig:
+      kubeConfig: ""
+      master: ""
+    modules:
+      cloudHub:
+        advertiseAddress:
+          - 192.168.0.2
+        nodeLimit: 1000
+        tlsCAFile: /etc/kubeedge/ca/rootCA.crt
+        tlsCertFile: /etc/kubeedge/certs/server.crt
+        tlsPrivateKeyFile: /etc/kubeedge/certs/server.key
+        unixsocket:
+          address: unix:///var/lib/kubeedge/kubeedge.sock
+          enable: true
+        websocket:
+          address: 0.0.0.0
+          enable: true
+          port: 10000
+        quic:
+          address: 0.0.0.0
+          enable: false
+          port: 10001
+      cloudStream:
+        enable: true
+        tlsStreamCAFile: /etc/kubeedge/ca/streamCA.crt
+        tlsStreamCertFile: /etc/kubeedge/certs/stream.crt
+        tlsStreamPrivateKeyFile: /etc/kubeedge/certs/stream.key
+        tlsTunnelCAFile: /etc/kubeedge/ca/rootCA.crt
+        tlsTunnelCertFile: /etc/kubeedge/certs/server.crt
+        tlsTunnelPrivateKeyFile: /etc/kubeedge/certs/server.key
+        tunnelPort: 10004
+      deviceController:
+        enable: true
+      edgeController:
+        enable: true
+      dynamicController:
+        enable: true
+
+---
+# Deployment for CloudCore
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudcore
+  namespace: kubeedge
+  labels:
+    app: cloudcore
+    component: cloudcore
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cloudcore
+  template:
+    metadata:
+      labels:
+        app: cloudcore
+        component: cloudcore
+    spec:
+      serviceAccountName: cloudcore
+      hostNetwork: true
+      containers:
+      - name: cloudcore
+        image: kubeedge/cloudcore:v1.15.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 10000
+          name: websocket
+          protocol: TCP
+        - containerPort: 10001
+          name: quic
+          protocol: TCP
+        - containerPort: 10002
+          name: cloudhub
+          protocol: TCP
+        - containerPort: 10003
+          name: cloudstream
+          protocol: TCP
+        - containerPort: 10004
+          name: tunnelport
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 500m
+            memory: 512Mi
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+        volumeMounts:
+        - name: cloudcore-config
+          mountPath: /etc/kubeedge/config
+        - name: cloudcore-data
+          mountPath: /var/lib/kubeedge
+        - name: cloudcore-certs
+          mountPath: /etc/kubeedge/certs
+        - name: cloudcore-ca
+          mountPath: /etc/kubeedge/ca
+        securityContext:
+          privileged: true
+      volumes:
+      - name: cloudcore-config
+        configMap:
+          name: cloudcore-config
+      - name: cloudcore-data
+        persistentVolumeClaim:
+          claimName: cloudcore-pvc
+      - name: cloudcore-certs
+        hostPath:
+          path: /etc/kubeedge/certs
+          type: DirectoryOrCreate
+      - name: cloudcore-ca
+        hostPath:
+          path: /etc/kubeedge/ca
+          type: DirectoryOrCreate
+
+---
+# Service for CloudCore
+apiVersion: v1
+kind: Service
+metadata:
+  name: cloudcore
+  namespace: kubeedge
+  labels:
+    app: cloudcore
+spec:
+  type: ClusterIP
+  ports:
+  - port: 10000
+    targetPort: 10000
+    protocol: TCP
+    name: websocket
+  - port: 10001
+    targetPort: 10001
+    protocol: TCP
+    name: quic
+  - port: 10002
+    targetPort: 10002
+    protocol: TCP
+    name: cloudhub
+  - port: 10003
+    targetPort: 10003
+    protocol: TCP
+    name: cloudstream
+  - port: 10004
+    targetPort: 10004
+    protocol: TCP
+    name: tunnelport
+  selector:
+    app: cloudcore

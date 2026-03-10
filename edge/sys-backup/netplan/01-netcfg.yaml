@@ -1,0 +1,21 @@
+# edge-001 (192.168.0.101)
+# edge-002 (192.168.0.102)
+# edge-003 (192.168.0.103)
+
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    eth0:
+      dhcp4: no
+      addresses:
+        - 192.168.0.101/24
+      routes:
+        - to: default
+          via: 192.168.0.1  # Router IP
+      nameservers:
+        addresses:
+          - 8.8.8.8
+          - 8.8.4.4
+        search:
+          - local

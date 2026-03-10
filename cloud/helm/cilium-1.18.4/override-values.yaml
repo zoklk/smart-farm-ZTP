@@ -1,0 +1,29 @@
+# cilium-override-values.yaml
+# API 서버 자동 감지 활성화
+k8sServiceHost: "auto"
+k8sServicePort: ""
+
+# hostNetwork 관련 (필요시)
+operator:
+  hostNetwork: true
+
+# CNI 설정 확인
+cni:
+  install: true
+  exclusive: true
+  chainingMode: null
+
+# Affinity 수정 (edge 노드 제외 유지)
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - topologyKey: kubernetes.io/hostname
+        labelSelector:
+          matchLabels:
+            k8s-app: cilium
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+          - key: node-role.kubernetes.io/edge
+            operator: DoesNotExist

@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: data-validator
+  namespace: kubeedge
+  labels:
+    app: data-validator
+spec:
+  type: ClusterIP
+  selector:
+    app: data-validator

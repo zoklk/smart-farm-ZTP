@@ -1,0 +1,119 @@
+# ConfigMap - 설정값
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: device-registration-config-1
+  namespace: kubeedge
+data:
+  MQTT_BROKER: "192.168.0.101"
+  MQTT_PORT: "1883"
+  MQTT_KEEPALIVE: "60"
+  DEVICE_NAMESPACE: "default"
+  DEVICE_MODEL_NAME: "sensor-model"
+  ZONE_COUNT: "3"  # 지원할 Zone 개수
+  CACHE_TTL: "30"  # Device ID 캐시 TTL (초)
+
+---
+# Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: device-registration-1
+  namespace: kubeedge
+  labels:
+    app: device-registration
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: device-registration
+  template:
+    metadata:
+      labels:
+        app: device-registration
+    spec:
+      # Edge 노드에서만 실행
+      nodeSelector:
+        kubernetes.io/hostname: edge-server1
+
+      serviceAccountName: device-registration-sa
+
+      # Host 네트워크 사용 (MQTT Broker가 localhost에 있음)
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+
+      containers:
+      - name: device-registration
+        image: ysa5347/device-registration:latest
+        imagePullPolicy: Always
+
+        env:
+        # KubeEdge MetaServer (EdgeStream) 사용 - 권장
+        - name: USE_METASERVER
+          value: "false"
+        - name: METASERVER_HOST
+          value: "127.0.0.1"
+        - name: METASERVER_PORT
+          value: "10550"
+
+         # 직접 연결 시 사용 (USE_METASERVER=false)
+        # Kubernetes API 직접 연결 (CNI 문제로 클러스터 내부 통신 불가)
+        - name: KUBERNETES_API_HOST
+          value: "172.17.90.89"
+        - name: KUBERNETES_API_PORT
+          value: "6443"
+
+        envFrom:
+        - configMapRef:
+            name: device-registration-config-1
+
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+
+        # 보안 설정
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: false
+
+        # Liveness probe - MQTT 연결 확인
+        livenessProbe:
+          exec:
+            command:
+            - python
+            - -c
+            - "import sys; sys.exit(0)"
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+
+        # Readiness probe - 서비스 준비 확인
+        readinessProbe:
+          exec:
+            command:
+            - python
+            - -c
+            - "import sys; sys.exit(0)"
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+
+      # Restart policy
+      restartPolicy: Always
+
+      # Tolerations (Edge 노드 toleration)
+      tolerations:
+      - key: "dedicated"
+        operator: "Exists"
+        effect: "NoSchedule"

@@ -1,0 +1,36 @@
+---
+# ServiceAccount
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: device-registration-sa
+  namespace: kubeedge
+
+---
+# ClusterRole - Device CRD 관리 권한
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: device-manager
+rules:
+- apiGroups: ["devices.kubeedge.io"]
+  resources: ["devices", "devicemodels"]
+  verbs: ["create", "get", "list", "watch", "patch", "update"]
+- apiGroups: [""]
+  resources: ["namespaces"]
+  verbs: ["get", "list"]
+
+---
+# ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: device-registration-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: device-manager
+subjects:
+- kind: ServiceAccount
+  name: device-registration-sa
+  namespace: kubeedge
